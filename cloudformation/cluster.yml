@@ -1,0 +1,114 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: "ECS Cluster with Task for lambda scaling"
+
+Parameters:
+  STAGE:
+    Type: String
+    Description: STAGE of app, enter prod or qa
+    AllowedValues:
+      - prod
+      - qa
+    Default: qa
+  SERVICENAME:
+    Type: String
+    Description: Service name
+    Default: insight
+  MODULE:
+    Type: String
+    Description: module name
+    Default: translator
+
+Resources:
+  ECSCluster:
+    Type: "AWS::ECS::Cluster"
+    Properties:
+      ClusterName:
+        !Join [
+          "-",
+          [
+            "talos",
+            "ecs",
+            "cluster",
+            !Ref SERVICENAME,
+            !Ref MODULE,
+            !Ref STAGE,
+          ],
+        ]
+
+  ECSService:
+    Type: "AWS::ECS::Service"
+    Properties:
+      Cluster: !GetAtt ECSCluster.Arn
+      DesiredCount: 0
+      EnableECSManagedTags: true
+      LaunchType: EC2
+      SchedulingStrategy: DAEMON
+      ServiceName:
+        !Join [
+          "-",
+          [
+            "talos",
+            "ecs",
+            "service",
+            !Ref SERVICENAME,
+            !Ref MODULE,
+            !Ref STAGE
+          ]
+        ]
+      TaskDefinition: !Ref ECSTaskdefintion #required
+  ECSTaskdefintion:
+    Type: "AWS::ECS::TaskDefinition"
+    Properties:
+      ContainerDefinitions:
+        - Name: !Join [
+          "-",
+          [
+            "talos",
+            "ecs",
+            "containerdefintion",
+            !Ref SERVICENAME,
+            !Ref MODULE,
+            !Ref STAGE
+          ]
+        ]
+          MountPoints:
+            - SourceVolume: "model"
+              ContainerPath: "/models"
+          Image: hello-world
+          Essential: "true"
+      Cpu: "2048"
+      Memory: "4096"
+      RequiresCompatibilities:
+        - EC2
+      TaskRoleArn: !GetAtt IAMRole.Arn
+      Volumes:
+        - 
+          Host: 
+            SourcePath: "/var/lib/docker/vfs/dir/"
+          Name: "model"
+
+  IAMRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - sqs:*
+            Resource: !ImportValue !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]] 
+          -
+            Effect: Allow
+            Action:
+              - s3:*
+            Resource: !ImportValue !Join ["-",["talos-s3-arn-snap-insight-translator-qa",!Ref STAGE]] 
+      Description: ECS-Execution Role
+  
+Outputs:
+  # Export SQS-data
+  ECSCluster:
+    Description: "Name of new Dynamo Table"
+    Value: !Ref InsightDynamoDb
+    Export:
+      Name: !Join ["-", ["DYNAMO", "URL", !Ref SERVICENAME, !Ref STAGE]]

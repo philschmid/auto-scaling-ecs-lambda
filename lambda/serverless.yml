@@ -1,0 +1,25 @@
+service: ${self:provider.tags.customer}-${self:provider.tags.app}-${self:provider.tags.module}
+
+provider:
+  runtime: python3.7
+  stage: ${opt:stage}
+  region: eu-central-1
+  tags:
+    customer: talos
+    app: insight
+    stage: ${opt:stage}
+    module: translator
+  environment:
+    sqsname:
+      Fn::ImportValue: talos-dynamodb-tablename-insight-module-${opt:stage}
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - sqs:*
+        - lambda:*
+      Resource:
+        Fn::ImportValue: talos-dynamodb-arn-insight-module-${opt:stage}
+
+functions:
+  hello:
+    handler: handler.autoscaler
