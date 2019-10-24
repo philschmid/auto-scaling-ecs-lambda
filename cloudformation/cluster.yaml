@@ -1,3 +1,7 @@
+# aws --profile talos cloudformation create-stack --stack-name tanslator-scale --template-body file://<(cfn-flip cluster.yaml) --capabilities CAPABILITY_IAM
+# aws --profile talos cloudformation update-stack --stack-name tanslator-scale --template-body file://<(cfn-flip cluster.yaml) --capabilities CAPABILITY_IAM
+# aws cloudformation create-stack --stack-name ECS-Scale --template-body file://<(cfn-flip cluster.yaml) --parameters ParameterKey=SERVICENAME,ParameterValue=linkScraper ParameterKey=REPOSITORIE,ParameterValue=https://github.com/talosinsights/search-link-scraper.git ParameterKey=STAGE,ParameterValue=qa
+
 AWSTemplateFormatVersion: 2010-09-09
 Description: "ECS Cluster with Task for lambda scaling"
 
@@ -34,7 +38,6 @@ Resources:
             !Ref STAGE,
           ],
         ]
-
   ECSService:
     Type: "AWS::ECS::Service"
     Properties:
@@ -71,44 +74,48 @@ Resources:
             !Ref STAGE
           ]
         ]
-          MountPoints:
-            - SourceVolume: "model"
-              ContainerPath: "/models"
+          # MountPoints:
+          #   - SourceVolume: "model"
+          #     ContainerPath: "/models"
           Image: hello-world
           Essential: "true"
-      Cpu: "2048"
-      Memory: "4096"
+      Cpu: "256"
+      Memory: "256"
       RequiresCompatibilities:
         - EC2
       TaskRoleArn: !GetAtt IAMRole.Arn
-      Volumes:
-        - 
-          Host: 
-            SourcePath: "/var/lib/docker/vfs/dir/"
-          Name: "model"
+      # Volumes:
+      #   -
+      #     Host:
+      #       SourcePath: "/var/lib/docker/vfs/dir/"
+      #     Name: "model"
 
   IAMRole:
     Type: "AWS::IAM::Role"
     Properties:
-      AssumeRolePolicyDocument: 
+      AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
           -
             Effect: Allow
             Action:
               - sqs:*
-            Resource: !ImportValue !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]] 
+            Resource: 
+              Fn::ImportValue:
+                !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
           -
             Effect: Allow
             Action:
               - s3:*
-            Resource: !ImportValue !Join ["-",["talos-s3-arn-snap-insight-translator-qa",!Ref STAGE]] 
+            Resource:
+              Fn::ImportValue:
+                !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
       Description: ECS-Execution Role
-  
-Outputs:
-  # Export SQS-data
-  ECSCluster:
-    Description: "Name of new Dynamo Table"
-    Value: !Ref InsightDynamoDb
-    Export:
-      Name: !Join ["-", ["DYNAMO", "URL", !Ref SERVICENAME, !Ref STAGE]]
+
+# Outputs:
+# Export SQS-data
+# ECSCluster:
+#   Description: "Name of new Dynamo Table"
+#   Value: !Ref InsightDynamoDb
+#   Export:
+#     Name: !Join ["-", ["DYNAMO", "URL", !Ref SERVICENAME, !Ref STAGE]]

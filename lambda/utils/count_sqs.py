@@ -1,8 +1,7 @@
 
 import boto3
 
-client = boto3.client('sqs', aws_access_key_id='AKIAW7N4JBTD2DMVRWUH',
-                  aws_secret_access_key='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', region_name='eu-central-1')
+client = boto3.client('sqs',region_name='eu-central-1')
 
 def count_sqs(queue_url=''):
     try:
