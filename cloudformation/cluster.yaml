@@ -23,15 +23,15 @@ Parameters:
     Default: translator
   CONTAINERCPU:
       Type: Number
-      Default: 256
+      Default: 2048
       Description: How much CPU to give the container. 1024 is 1 CPU
   CONTAINERMEMORY:
       Type: Number
-      Default: 512
+      Default: 4096
       Description: How much memory in megabytes to give the container
   IMAGEURL:
     Type: String
-    Default: 479820582087.dkr.ecr.eu-central-1.amazonaws.com/test:latest
+    Default: 479820582087.dkr.ecr.eu-central-1.amazonaws.com/translator:latest
     Description: The url of a docker image that contains the application process that
                  will handle the traffic for this service
   DESIREDCOUNT:
@@ -43,6 +43,10 @@ Mappings:
   SubnetConfig:
     VPC:
       CIDR: '10.0.0.0/16'
+    PublicOne:
+      CIDR: '10.0.0.0/24'
+    PublicTwo:
+      CIDR: '10.0.1.0/24'
     PrivateOne:
       CIDR: '10.0.2.0/24'
     PrivateTwo:
@@ -88,12 +92,12 @@ Resources:
       NetworkConfiguration: 
         AwsvpcConfiguration:
           # change to DISABLED if you're using private subnets that have access to a NAT gateway
-          AssignPublicIp: DISABLED
+          # AssignPublicIp: ENABLED
           Subnets:
             - !Ref ECSSubnetOne
             - !Ref ECSSubnetTwo
-          # SecurityGroups:
-          #   - !Ref ECSSecurityGroup
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
 
   ECSTaskdefintion:
     Type: "AWS::ECS::TaskDefinition"
@@ -173,7 +177,10 @@ Resources:
                 - 'ecr:BatchCheckLayerAvailability'
                 - 'ecr:GetDownloadUrlForLayer'
                 - 'ecr:BatchGetImage'
-
+                - "ecr:InitiateLayerUpload"
+                - "ecr:UploadLayerPart"
+                - "ecr:CompleteLayerUpload"
+ 
                 # Allow the ECS tasks to upload logs to CloudWatch
                 - 'logs:CreateLogStream'
                 - 'logs:PutLogEvents'
@@ -225,16 +232,19 @@ Resources:
       Roles: 
         - !Ref ECSTaskRole
 
-  # ECSSecurityGroup:
-  #   Type: AWS::EC2::SecurityGroup
-  #   Properties:
-  #     GroupDescription: !Join ['-', [!Ref SERVICENAME, ContainerSecurityGroup]]
-  #     VpcId: !Ref VPC
-  #     SecurityGroupIngress:
-  #       - IpProtocol: tcp
-  #         FromPort: 443
-  #         ToPort: !Ref ContainerPort
-  #         SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: !Join ['-', [!Ref SERVICENAME, ContainerSecurityGroup]]
+      VpcId: !Ref ECSVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          # SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
   ECSVPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -258,6 +268,108 @@ Resources:
         - Fn::GetAZs: !Ref 'AWS::Region'
       VpcId: !Ref ECSVPC
       CidrBlock: !FindInMap ['SubnetConfig', 'PrivateTwo', 'CIDR']
+  ECSPublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref ECSVPC
+      CidrBlock: !FindInMap ['SubnetConfig', 'PublicOne', 'CIDR']
+      MapPublicIpOnLaunch: true
+  ECSPublicSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref ECSVPC
+      CidrBlock: !FindInMap ['SubnetConfig', 'PublicTwo', 'CIDR']
+      MapPublicIpOnLaunch: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  GatewayAttachement:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ECSVPC
+      InternetGatewayId: !Ref 'InternetGateway'
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ECSVPC
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachement
+    Properties:
+      RouteTableId: !Ref 'PublicRouteTable'
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref 'InternetGateway'
+  PublicSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSPublicSubnetOne
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ECSPublicSubnetTwo
+      RouteTableId: !Ref PublicRouteTable
+
+  # Setup networking resources for the private subnets. Containers
+  # in these subnets have only private IP addresses, and must use a NAT
+  # gateway to talk to the internet. We launch two NAT gateways, one for
+  # each private subnet.
+  NatGatewayOneAttachment:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachement
+    Properties:
+        Domain: vpc
+  NatGatewayTwoAttachment:
+    Type: AWS::EC2::EIP
+    DependsOn: GatewayAttachement
+    Properties:
+        Domain: vpc
+  NatGatewayOne:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayOneAttachment.AllocationId
+      SubnetId: !Ref ECSPublicSubnetOne
+  NatGatewayTwo:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayTwoAttachment.AllocationId
+      SubnetId: !Ref ECSPublicSubnetTwo
+  PrivateRouteTableOne:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ECSVPC
+  PrivateRouteOne:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayOne
+  PrivateRouteTableOneAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableOne
+      SubnetId: !Ref ECSSubnetOne
+  PrivateRouteTableTwo:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ECSVPC
+  PrivateRouteTwo:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGatewayTwo
+  PrivateRouteTableTwoAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableTwo
+      SubnetId: !Ref ECSSubnetTwo
 
 
 Outputs:
@@ -266,12 +378,11 @@ Outputs:
     Value: !GetAtt ECSCluster.Arn
     Export:
       Name: !Join ["-", ["ECSCluster", "ARN", !Ref SERVICENAME, !Ref STAGE]]
-
   ECSService:
-    Description: "name of new ECS Service"
+    Description: "arn of new ECS Service"
     Value: !Ref ECSService
     Export:
-      Name: !Join ["-", ["ECSService", "NAME", !Ref SERVICENAME, !Ref STAGE]]
+      Name: !Join ["-", ["ECSService", "ARN", !Ref SERVICENAME, !Ref STAGE]]
   ECSTaskdefintion:
     Description: "Arn of new ECS Taskdefinition"
     Value:  !Ref ECSTaskdefintion

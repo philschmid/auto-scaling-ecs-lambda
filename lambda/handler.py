@@ -47,13 +47,12 @@ def autoscaler(event,context):
         # service=os.environ['ecs_service'], #name 
         service='arn:aws:ecs:eu-central-1:479820582087:service/talos-ecs-service-insight-translator-qa', #name 
         # taskDefinition=os.environ['ecs_task'], #arn 
-        taskDefinition='arn:aws:ecs:eu-central-1:479820582087:task-definition/tanslator-scale-ECSTaskdefintion-4Z9LA7YRTEF0:1', #arn 
+        taskDefinition='arn:aws:ecs:eu-central-1:479820582087:task-definition/tanslator-scale-ECSTaskdefintion-AUNZN2YH8E2G:1', #arn 
         desiredCount=desired_count
     )
     # except:
     #     return False
 
     # return True
-
 
 autoscaler('','')

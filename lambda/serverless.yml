@@ -11,13 +11,13 @@ provider:
     module: translator
   environment:
     sqs_queue_url:
-      Fn::ImportValue: talos-dynamodb-tablename-insight-module-${opt:stage}
+      Fn::ImportValue: talos-sqs-url-snap-insight-translator-${opt:stage}
     ecs_cluster:
-      Fn::ImportValue: talos-dynamodb-tablename-insight-module-${opt:stage}
+      Fn::ImportValue: ECSCluster-ARN-insight-${opt:stage}
     ecs_service:
-      Fn::ImportValue: talos-dynamodb-tablename-insight-module-${opt:stage}
+      Fn::ImportValue: ECSService-ARN-insight-${opt:stage}
     ecs_task:
-      Fn::ImportValue: talos-dynamodb-tablename-insight-module-${opt:stage}
+      Fn::ImportValue: ECSTaskdefintion-ARN-insight-${opt:stage}
   iamRoleStatements:
     - Effect: Allow
       Action:
