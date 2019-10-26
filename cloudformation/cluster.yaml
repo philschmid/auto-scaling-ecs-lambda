@@ -34,6 +34,17 @@ Parameters:
     Default: 479820582087.dkr.ecr.eu-central-1.amazonaws.com/test:latest
     Description: The url of a docker image that contains the application process that
                  will handle the traffic for this service
+
+
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: '10.0.0.0/16'
+    PrivateOne:
+      CIDR: '10.0.2.0/24'
+    PrivateTwo:
+      CIDR: '10.0.3.0/24'
+
 Resources:
   ECSCluster:
     Type: "AWS::ECS::Cluster"
@@ -56,7 +67,7 @@ Resources:
       Cluster: !GetAtt ECSCluster.Arn
       DesiredCount: 1
       EnableECSManagedTags: false
-      LaunchType: EC2
+      LaunchType: FARGATE
       # SchedulingStrategy: DAEMON
       ServiceName:
         !Join [
@@ -76,8 +87,8 @@ Resources:
           # change to DISABLED if you're using private subnets that have access to a NAT gateway
           AssignPublicIp: DISABLED
           Subnets:
-            - !Ref SubnetA
-            - !Ref SubnetB
+            - !Ref ECSSubnetOne
+            - !Ref ECSSubnetTwo
           # SecurityGroups:
           #   - !Ref ECSSecurityGroup
 
@@ -128,12 +139,11 @@ Resources:
       NetworkMode: awsvpc
       TaskRoleArn: !GetAtt IAMRole.Arn
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
-      Essential: True
 
-  CloudWatchLogsGroup:
+  ECSCloudWatchLogsGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Ref AWS::StackName
+      LogGroupName: !Join ["/",["",!Ref AWS::StackName ,!Ref SERVICENAME ,!Ref MODULE]] 
       RetentionInDays: 365
 
   ECSTaskExecutionRole:
@@ -174,7 +184,7 @@ Resources:
                 - s3:*
               Resource:
                 Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
-  IAMRole:
+  ECSTaskRole:
     Type: "AWS::IAM::Role"
     Properties: 
       AssumeRolePolicyDocument: 
@@ -189,7 +199,7 @@ Resources:
               - "sts:AssumeRole"
       Path: "/"
     Description: ECS-Execution Role
-  RolePolicies: 
+  ECSTaskRolePolicy: 
     Type: "AWS::IAM::Policy"
     Properties: 
       PolicyName: "root"
@@ -216,6 +226,29 @@ Resources:
   #         FromPort: 443
   #         ToPort: !Ref ContainerPort
   #         SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+  ECSVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap ['SubnetConfig', 'VPC', 'CIDR']
+
+  ECSSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref ECSVPC
+      CidrBlock: !FindInMap ['SubnetConfig', 'PrivateOne', 'CIDR']
+  ECSSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select
+        - 1
+        - Fn::GetAZs: !Ref 'AWS::Region'
+      VpcId: !Ref ECSVPC
+      CidrBlock: !FindInMap ['SubnetConfig', 'PrivateTwo', 'CIDR']
 
 
 Outputs:
