@@ -129,7 +129,7 @@ Resources:
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref CloudWatchLogsGroup
+              awslogs-group: !Ref ECSCloudWatchLogsGroup
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: test
       Cpu: !Ref CONTAINERCPU
@@ -137,7 +137,7 @@ Resources:
       RequiresCompatibilities:
         - FARGATE
       NetworkMode: awsvpc
-      TaskRoleArn: !GetAtt IAMRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
       ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
 
   ECSCloudWatchLogsGroup:
@@ -153,7 +153,10 @@ Resources:
         Statement:
         - Effect: Allow
           Principal:
-            Service: [ecs-tasks.amazonaws.com]
+            Service: 
+              - "ec2.amazonaws.com"
+              - "ecs-tasks.amazonaws.com"
+              - "ecs.amazonaws.com"
           Action: ['sts:AssumeRole']
       Path: /
       Policies:
@@ -172,18 +175,7 @@ Resources:
                 - 'logs:CreateLogStream'
                 - 'logs:PutLogEvents'
               Resource: '*'
-            -
-              Effect: Allow
-              Action:
-                - sqs:*
-              Resource: 
-                Fn::ImportValue: !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
-            -
-              Effect: Allow
-              Action:
-                - s3:*
-              Resource:
-                Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
+
   ECSTaskRole:
     Type: "AWS::IAM::Role"
     Properties: 
@@ -195,6 +187,8 @@ Resources:
             Principal: 
               Service: 
                 - "ec2.amazonaws.com"
+                - "ecs-tasks.amazonaws.com"
+                - "ecs.amazonaws.com"
             Action: 
               - "sts:AssumeRole"
       Path: "/"
@@ -213,8 +207,20 @@ Resources:
               - logs:*
             Resource:
               "arn:aws:logs:*:*:*"
+          -
+            Effect: Allow
+            Action:
+              - sqs:*
+            Resource: 
+              Fn::ImportValue: !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]     
+          -
+            Effect: Allow
+            Action:
+              - s3:*
+            Resource:
+              Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
       Roles: 
-        - !Ref IAMRole
+        - !Ref ECSTaskRole
 
   # ECSSecurityGroup:
   #   Type: AWS::EC2::SecurityGroup
