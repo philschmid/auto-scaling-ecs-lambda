@@ -21,7 +21,19 @@ Parameters:
     Type: String
     Description: module name
     Default: translator
-
+  CONTAINERCPU:
+      Type: Number
+      Default: 256
+      Description: How much CPU to give the container. 1024 is 1 CPU
+  CONTAINERMEMORY:
+      Type: Number
+      Default: 512
+      Description: How much memory in megabytes to give the container
+  IMAGEURL:
+    Type: String
+    Default: 479820582087.dkr.ecr.eu-central-1.amazonaws.com/test:latest
+    Description: The url of a docker image that contains the application process that
+                 will handle the traffic for this service
 Resources:
   ECSCluster:
     Type: "AWS::ECS::Cluster"
@@ -42,7 +54,7 @@ Resources:
     Type: "AWS::ECS::Service"
     Properties:
       Cluster: !GetAtt ECSCluster.Arn
-      DesiredCount: 0
+      DesiredCount: 1
       EnableECSManagedTags: false
       LaunchType: EC2
       # SchedulingStrategy: DAEMON
@@ -59,6 +71,16 @@ Resources:
           ]
         ]
       TaskDefinition: !Ref ECSTaskdefintion #required
+      NetworkConfiguration: 
+        AwsvpcConfiguration:
+          # change to DISABLED if you're using private subnets that have access to a NAT gateway
+          AssignPublicIp: DISABLED
+          Subnets:
+            - !Ref SubnetA
+            - !Ref SubnetB
+          # SecurityGroups:
+          #   - !Ref ECSSecurityGroup
+
   ECSTaskdefintion:
     Type: "AWS::ECS::TaskDefinition"
     Properties:
@@ -77,19 +99,81 @@ Resources:
           # MountPoints:
           #   - SourceVolume: "model"
           #     ContainerPath: "/models"
-          Image: hello-world
-          Essential: "true"
-      Cpu: "256"
-      Memory: "256"
+          Image: !Ref IMAGEURL
+          Cpu: !Ref CONTAINERCPU
+          Memory: !Ref CONTAINERMEMORY
+          Environment:
+            - Name: region
+              Value: !Ref "AWS::Region"
+            - Name: accountId
+              Value: !Ref "AWS::AccountId"
+            - Name: bucket
+              Value:
+                Fn::ImportValue: !Join ["-",["talos-s3-bucketname-snap-insight-translator",!Ref STAGE]]
+            - Name: bucket_path
+              Value: articles
+            - Name: sqs_queue
+              Value: 
+                Fn::ImportValue: !Join ["-",["talos-sqs-url-snap-insight-translator",!Ref STAGE]]
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref CloudWatchLogsGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: test
+      Cpu: !Ref CONTAINERCPU
+      Memory: !Ref CONTAINERMEMORY
       RequiresCompatibilities:
-        - EC2
+        - FARGATE
+      NetworkMode: awsvpc
       TaskRoleArn: !GetAtt IAMRole.Arn
-      # Volumes:
-      #   -
-      #     Host:
-      #       SourcePath: "/var/lib/docker/vfs/dir/"
-      #     Name: "model"
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      Essential: True
 
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Ref AWS::StackName
+      RetentionInDays: 365
+
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: [ecs-tasks.amazonaws.com]
+          Action: ['sts:AssumeRole']
+      Path: /
+      Policies:
+        - PolicyName: AmazonECSTaskExecutionRolePolicy
+          PolicyDocument:
+            Statement:
+            - Effect: Allow
+              Action:
+                # Allow the ECS Tasks to download images from ECR
+                - 'ecr:GetAuthorizationToken'
+                - 'ecr:BatchCheckLayerAvailability'
+                - 'ecr:GetDownloadUrlForLayer'
+                - 'ecr:BatchGetImage'
+
+                # Allow the ECS tasks to upload logs to CloudWatch
+                - 'logs:CreateLogStream'
+                - 'logs:PutLogEvents'
+              Resource: '*'
+            -
+              Effect: Allow
+              Action:
+                - sqs:*
+              Resource: 
+                Fn::ImportValue: !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
+            -
+              Effect: Allow
+              Action:
+                - s3:*
+              Resource:
+                Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
   IAMRole:
     Type: "AWS::IAM::Role"
     Properties: 
@@ -112,25 +196,42 @@ Resources:
       PolicyDocument: 
         Version: "2012-10-17"
         Statement: 
+   
           -
             Effect: Allow
             Action:
-              - sqs:*
-            Resource: 
-              Fn::ImportValue: !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
-          -
-            Effect: Allow
-            Action:
-              - s3:*
+              - logs:*
             Resource:
-              Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
+              "arn:aws:logs:*:*:*"
       Roles: 
         - !Ref IAMRole
 
-# Outputs:
-# Export SQS-data
-# ECSCluster:
-#   Description: "Name of new Dynamo Table"
-#   Value: !Ref InsightDynamoDb
-#   Export:
-#     Name: !Join ["-", ["DYNAMO", "URL", !Ref SERVICENAME, !Ref STAGE]]
+  # ECSSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: !Join ['-', [!Ref SERVICENAME, ContainerSecurityGroup]]
+  #     VpcId: !Ref VPC
+  #     SecurityGroupIngress:
+  #       - IpProtocol: tcp
+  #         FromPort: 443
+  #         ToPort: !Ref ContainerPort
+  #         SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+
+
+Outputs:
+  ECSCluster:
+    Description: "ARN of new ECS Cluster"
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Join ["-", ["ECSCluster", "ARN", !Ref SERVICENAME, !Ref STAGE]]
+
+  ECSService:
+    Description: "name of new ECS Service"
+    Value: !Ref ECSService
+    Export:
+      Name: !Join ["-", ["ECSService", "NAME", !Ref SERVICENAME, !Ref STAGE]]
+  ECSTaskdefintion:
+    Description: "Arn of new ECS Taskdefinition"
+    Value:  !Ref ECSTaskdefintion
+    Export:
+      Name: !Join ["-", ["ECSTaskdefintion", "ARN", !Ref SERVICENAME, !Ref STAGE]]
