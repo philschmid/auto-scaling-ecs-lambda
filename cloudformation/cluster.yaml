@@ -34,7 +34,10 @@ Parameters:
     Default: 479820582087.dkr.ecr.eu-central-1.amazonaws.com/test:latest
     Description: The url of a docker image that contains the application process that
                  will handle the traffic for this service
-
+  DESIREDCOUNT:
+      Type: Number
+      Default: 0
+      Description: How much Task will be started
 
 Mappings:
   SubnetConfig:
@@ -65,7 +68,7 @@ Resources:
     Type: "AWS::ECS::Service"
     Properties:
       Cluster: !GetAtt ECSCluster.Arn
-      DesiredCount: 1
+      DesiredCount: !Ref DESIREDCOUNT
       EnableECSManagedTags: false
       LaunchType: FARGATE
       # SchedulingStrategy: DAEMON
