@@ -43,9 +43,9 @@ Resources:
     Properties:
       Cluster: !GetAtt ECSCluster.Arn
       DesiredCount: 0
-      EnableECSManagedTags: true
+      EnableECSManagedTags: false
       LaunchType: EC2
-      SchedulingStrategy: DAEMON
+      # SchedulingStrategy: DAEMON
       ServiceName:
         !Join [
           "-",
@@ -92,25 +92,40 @@ Resources:
 
   IAMRole:
     Type: "AWS::IAM::Role"
-    Properties:
-      AssumeRolePolicyDocument:
+    Properties: 
+      AssumeRolePolicyDocument: 
         Version: "2012-10-17"
-        Statement:
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+    Description: ECS-Execution Role
+  RolePolicies: 
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "root"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
           -
             Effect: Allow
             Action:
               - sqs:*
             Resource: 
-              Fn::ImportValue:
-                !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
+              Fn::ImportValue: !Join ["-",["talos-sqs-arn-snap-insight-translator",!Ref STAGE]]
           -
             Effect: Allow
             Action:
               - s3:*
             Resource:
-              Fn::ImportValue:
-                !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
-      Description: ECS-Execution Role
+              Fn::ImportValue: !Join ["-",["talos-s3-arn-snap-insight-translator",!Ref STAGE]]
+      Roles: 
+        - !Ref IAMRole
 
 # Outputs:
 # Export SQS-data
